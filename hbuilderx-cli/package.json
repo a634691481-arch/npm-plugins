@@ -1,6 +1,6 @@
 {
   "name": "@a634691481/hb-cli",
-  "version": "1.0.34",
+  "version": "1.0.36",
   "description": "HBuilderX CLI 管理工具 - 全局命令行工具",
   "bin": {
     "hb": "index.js"
