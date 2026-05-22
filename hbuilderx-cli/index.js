@@ -195,8 +195,12 @@ async function basicSettings() {
   config.hbxDir = await input({ message: 'HBuilderX 安装目录:', default: config.hbxDir || 'D:\\HBuilderX' });
 
   saveConfig(config);
+  _manifestCache = null;
   config.appid = getManifestWxAppId() || config.appid;
   config.alipayAppid = getManifestAlipayAppId() || config.alipayAppid;
+  config.manifestName = getManifestAppName() || config.manifestName;
+  config.manifestVersion = getManifestVersion() || config.manifestVersion;
+  config.manifestAppId = getManifestAppId() || config.manifestAppId;
   const sp = ora({ text: '保存中...', color: 'green' }).start();
   await new Promise(r => setTimeout(r, 600));
   sp.succeed('已保存');
@@ -216,7 +220,7 @@ async function main() {
         { name: '📦 发布 H5', value: '1' },
         { name: '📋 项目列表', value: '6' },
         { name: '⚙  基本设置', value: 's' },
-        { name: '✕ 退出', value: '0' },
+        // { name: '✕  退出', value: '0' },
       ],
       loop: false,
       pageSize: 10,
