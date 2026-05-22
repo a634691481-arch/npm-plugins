@@ -35,18 +35,33 @@ function findHBuilderX() {
   return '';
 }
 
-function getManifestWxAppId() {
+let _manifestCache = null;
+function getManifest() {
+  if (_manifestCache) return _manifestCache;
   try {
-    const m = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'manifest.json'), 'utf8'));
-    return m?.['mp-weixin']?.appid || '';
-  } catch { return ''; }
+    _manifestCache = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'manifest.json'), 'utf8'));
+    return _manifestCache;
+  } catch { return {}; }
+}
+
+function getManifestWxAppId() {
+  return getManifest()?.['mp-weixin']?.appid || '';
 }
 
 function getManifestAlipayAppId() {
-  try {
-    const m = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'manifest.json'), 'utf8'));
-    return m?.['mp-alipay']?.appid || '';
-  } catch { return ''; }
+  return getManifest()?.['mp-alipay']?.appid || '';
+}
+
+function getManifestAppName() {
+  return getManifest()?.name || '';
+}
+
+function getManifestVersion() {
+  return getManifest()?.versionName || '';
+}
+
+function getManifestAppId() {
+  return getManifest()?.appid || '';
 }
 
 function loadConfig() {
@@ -64,6 +79,9 @@ function loadConfig() {
   }
   cfg.appid = wxAppId || '';
   cfg.alipayAppid = aliAppId || '';
+  cfg.manifestName = getManifestAppName() || '';
+  cfg.manifestVersion = getManifestVersion() || '';
+  cfg.manifestAppId = getManifestAppId() || '';
   return cfg;
 }
 
@@ -87,10 +105,11 @@ function ts() {
 function header() {
   console.clear();
   const info =
-    chalk.dim('项目') + '   ' + chalk.bold(PROJECT_NAME) + '\n' +
+    chalk.dim('名称') + '   ' + chalk.bold(config.manifestName || PROJECT_NAME) + '\n' +
+    chalk.dim('版本') + '   ' + (config.manifestVersion ? chalk.bold(config.manifestVersion) : chalk.dim('-')) + '\n' +
     chalk.dim('微信') + '   ' + (config.appid ? config.appid : chalk.red('未设置')) + '\n' +
     chalk.dim('支付宝') + ' ' + (config.alipayAppid || chalk.dim('未设置')) + '\n' +
-    chalk.dim('工具') + ' ' + (config.hbxDir ? chalk.cyan(path.basename(config.hbxDir)) : chalk.red('未找到'));
+    chalk.dim('工具') + '   ' + (config.hbxDir ? chalk.cyan(path.basename(config.hbxDir)) : chalk.red('未找到'));
   console.log(boxen(chalk.bold.yellow(' HBuilderX CLI 管理工具 ') + '\n\n' + info,
     { padding: 1, borderStyle: 'round', borderColor: 'cyan' }
   ));
