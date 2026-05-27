@@ -73,6 +73,7 @@ function loadConfig() {
   } catch {
     cfg = { hbxDir: '' };
   }
+  if (!cfg.lastAction) cfg.lastAction = '';
   if (!cfg.hbxDir || !fs.existsSync(path.join(cfg.hbxDir, 'cli.exe'))) {
     const found = findHBuilderX();
     if (found) { cfg.hbxDir = found; saveConfig(cfg); }
@@ -211,6 +212,7 @@ async function main() {
   while (true) {
     header();
 
+    const defaultAction = config.lastAction || undefined;
     const action = await select({
       message: chalk.bold('选择操作:'),
       choices: [
@@ -222,17 +224,18 @@ async function main() {
         { name: '⚙  基本设置', value: 's' },
         // { name: '✕  退出', value: '0' },
       ],
+      default: defaultAction,
       loop: false,
       pageSize: 10,
     });
 
     switch (action) {
-      case '1': await pubWeb(); break;
-      case '3': await runWeb(); break;
-      case '4': await runWx(); break;
-      case '5': await runAli(); break;
-      case '6': await listProjects(); break;
-      case 's': await basicSettings(); break;
+      case '1': await pubWeb(); config.lastAction = '1'; saveConfig(config); break;
+      case '3': await runWeb(); config.lastAction = '3'; saveConfig(config); break;
+      case '4': await runWx(); config.lastAction = '4'; saveConfig(config); break;
+      case '5': await runAli(); config.lastAction = '5'; saveConfig(config); break;
+      case '6': await listProjects(); config.lastAction = '6'; saveConfig(config); break;
+      case 's': await basicSettings(); config.lastAction = 's'; saveConfig(config); break;
       case '0':
         console.clear();
         console.log(boxen(chalk.cyan('再见!'), { padding: 1, borderStyle: 'double', borderColor: 'cyan' }));
