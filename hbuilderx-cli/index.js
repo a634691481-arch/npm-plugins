@@ -113,6 +113,7 @@ function header() {
   const lastLabel = curAction ? chalk.dim('上次: ') + (ACTION_NAMES[curAction] || curAction) : '';
   const info =
     chalk.dim('名称') + '   ' + chalk.bold(config.manifestName || PROJECT_NAME) + '\n' +
+    chalk.dim('路径') + '   ' + chalk.dim(ROOT_DIR) + '\n' +
     chalk.dim('版本') + '   ' + (config.manifestVersion ? chalk.bold(config.manifestVersion) : chalk.dim('-')) + '\n' +
     chalk.dim('微信') + '   ' + (config.appid ? config.appid : chalk.red('未设置')) + '\n' +
     chalk.dim('支付宝') + ' ' + (config.alipayAppid || chalk.dim('未设置')) + '\n' +
