@@ -73,7 +73,7 @@ function loadConfig() {
   } catch {
     cfg = { hbxDir: '' };
   }
-  if (!cfg.lastAction) cfg.lastAction = '';
+  cfg.lastActionMap = cfg.lastActionMap || {};
   if (!cfg.hbxDir || !fs.existsSync(path.join(cfg.hbxDir, 'cli.exe'))) {
     const found = findHBuilderX();
     if (found) { cfg.hbxDir = found; saveConfig(cfg); }
@@ -87,7 +87,8 @@ function loadConfig() {
 }
 
 function saveConfig(cfg) {
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+  const clean = { hbxDir: cfg.hbxDir, lastActionMap: cfg.lastActionMap };
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(clean, null, 2));
 }
 
 function cliCmd(args) {
@@ -96,6 +97,7 @@ function cliCmd(args) {
 }
 
 let config = loadConfig();
+let _hbxOpened = false;
 
 // ============ Display ============
 function ts() {
@@ -103,14 +105,19 @@ function ts() {
   return chalk.dim(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`);
 }
 
+const ACTION_NAMES = { '1': '发布 H5', '3': '运行 Web', '4': '运行微信', '5': '运行支付宝', '6': '项目列表', 's': '基本设置' };
+
 function header() {
   console.clear();
+  const curAction = config.lastActionMap[PROJECT_NAME] || '';
+  const lastLabel = curAction ? chalk.dim('上次: ') + (ACTION_NAMES[curAction] || curAction) : '';
   const info =
     chalk.dim('名称') + '   ' + chalk.bold(config.manifestName || PROJECT_NAME) + '\n' +
     chalk.dim('版本') + '   ' + (config.manifestVersion ? chalk.bold(config.manifestVersion) : chalk.dim('-')) + '\n' +
     chalk.dim('微信') + '   ' + (config.appid ? config.appid : chalk.red('未设置')) + '\n' +
     chalk.dim('支付宝') + ' ' + (config.alipayAppid || chalk.dim('未设置')) + '\n' +
-    chalk.dim('工具') + '   ' + (config.hbxDir ? chalk.cyan(path.basename(config.hbxDir)) : chalk.red('未找到'));
+    chalk.dim('工具') + '   ' + (config.hbxDir ? chalk.cyan(path.basename(config.hbxDir)) : chalk.red('未找到')) +
+    (lastLabel ? '\n' + chalk.dim('─'.repeat(30)) + '\n' + lastLabel : '');
   console.log(boxen(chalk.bold.yellow(' HBuilderX CLI 管理工具 ') + '\n\n' + info,
     { padding: 1, borderStyle: 'round', borderColor: 'cyan' }
   ));
@@ -123,9 +130,9 @@ function runCmd(cmd) {
     const proc = spawn(isWin ? 'cmd.exe' : 'sh',
       isWin ? ['/c', cmd] : ['-c', cmd],
       { stdio: 'inherit', windowsHide: true, cwd: ROOT_DIR });
-    sp.stop();
-    console.log(`  ${ts()} ${chalk.cyan('$')} ${chalk.dim(cmd)}\n`);
     proc.on('close', code => {
+      sp.stop();
+      console.log(`  ${ts()} ${chalk.cyan('$')} ${chalk.dim(cmd)}\n`);
       const msg = code === 0 ? chalk.green('✔ 完成') : chalk.red('✖ 失败 (exit: ' + code + ')');
       console.log(`\n${boxen(` ${ts()} ${msg}`, { padding: { left: 1, right: 1 }, borderStyle: 'single', borderColor: code === 0 ? 'green' : 'red' })}`);
       resolve(code);
@@ -139,6 +146,13 @@ function runCmd(cmd) {
 }
 
 async function openHbx() {
+  if (_hbxOpened) return;
+  if (!config.hbxDir || !fs.existsSync(path.join(config.hbxDir, 'cli.exe'))) {
+    console.log(`  ${ts()} ${chalk.yellow('⚠ HBuilderX 未配置或未找到')}`);
+    _hbxOpened = true;
+    return;
+  }
+  _hbxOpened = true;
   const cmd = cliCmd('open');
   return new Promise(resolve => {
     const sp = ora({ text: '启动 HBuilderX...', color: 'cyan' }).start();
@@ -147,7 +161,7 @@ async function openHbx() {
       isWin ? ['/c', cmd] : ['-c', cmd],
       { windowsHide: true, cwd: ROOT_DIR });
     let done = false;
-    const t = setTimeout(() => { if (!done) { sp.stop(); done = true; resolve(); } }, 5000);
+    const t = setTimeout(() => { if (!done) { sp.stop(); done = true; resolve(); } }, 3000);
     proc.on('close', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
     proc.on('error', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
   });
@@ -157,35 +171,54 @@ async function exec(label, cmd) {
   header();
   console.log(`  ${chalk.bold.cyan('▶')} ${label}\n`);
   const code = cmd ? await runCmd(cmd) : 0;
-  if (code === 0) {
-    await input({ message: '按 Enter 键返回菜单', default: '' });
-  }
+  await input({ message: '按 Enter 键返回菜单', default: '' });
   return code;
+}
+
+async function importProject() {
+  if (!config.hbxDir || !fs.existsSync(path.join(config.hbxDir, 'cli.exe'))) return;
+  return new Promise(resolve => {
+    const sp = ora({ text: '导入项目...', color: 'cyan' }).start();
+    const isWin = process.platform === 'win32';
+    const cmd = cliCmd(`project open --path "${ROOT_DIR}"`);
+    const proc = spawn(isWin ? 'cmd.exe' : 'sh',
+      isWin ? ['/c', cmd] : ['-c', cmd],
+      { windowsHide: true, cwd: ROOT_DIR });
+    let done = false;
+    const t = setTimeout(() => { if (!done) { sp.stop(); done = true; resolve(); } }, 2000);
+    proc.on('close', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
+    proc.on('error', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
+  });
 }
 
 // ============ Commands ============
 async function pubWeb() {
   await openHbx();
+  await importProject();
   await exec('发布 H5', cliCmd(`publish web --project ${PROJECT_NAME}`));
 }
 
 async function runWeb() {
   await openHbx();
+  await importProject();
   await exec('运行 Web', cliCmd(`launch web --project ${PROJECT_NAME} --browser Chrome`));
 }
 
 async function runWx() {
   await openHbx();
+  await importProject();
   await exec('运行微信', cliCmd(`launch mp-weixin --project ${PROJECT_NAME}`));
 }
 
 async function runAli() {
   await openHbx();
+  await importProject();
   await exec('运行支付宝', cliCmd(`launch mp-alipay --project ${PROJECT_NAME}`));
 }
 
 async function listProjects() {
   await openHbx();
+  await importProject();
   await exec('项目列表', cliCmd('project list'));
 }
 
@@ -212,7 +245,7 @@ async function main() {
   while (true) {
     header();
 
-    const defaultAction = config.lastAction || undefined;
+    const defaultAction = config.lastActionMap[PROJECT_NAME] || undefined;
     const action = await select({
       message: chalk.bold('选择操作:'),
       choices: [
@@ -222,7 +255,7 @@ async function main() {
         { name: '(4) 📦 发布 H5', value: '1' },
         { name: '(5) 📋 项目列表', value: '6' },
         { name: '(6) ⚙  基本设置', value: 's' },
-        // { name: '(0) ✕  退出', value: '0' },
+        { name: '(0) ✕  退出', value: '0' },
       ],
       default: defaultAction,
       loop: false,
@@ -230,12 +263,12 @@ async function main() {
     });
 
     switch (action) {
-      case '1': await pubWeb(); config.lastAction = '1'; saveConfig(config); break;
-      case '3': await runWeb(); config.lastAction = '3'; saveConfig(config); break;
-      case '4': await runWx(); config.lastAction = '4'; saveConfig(config); break;
-      case '5': await runAli(); config.lastAction = '5'; saveConfig(config); break;
-      case '6': await listProjects(); config.lastAction = '6'; saveConfig(config); break;
-      case 's': await basicSettings(); config.lastAction = 's'; saveConfig(config); break;
+      case '1': await pubWeb(); config.lastActionMap[PROJECT_NAME] = '1'; saveConfig(config); break;
+      case '3': await runWeb(); config.lastActionMap[PROJECT_NAME] = '3'; saveConfig(config); break;
+      case '4': await runWx(); config.lastActionMap[PROJECT_NAME] = '4'; saveConfig(config); break;
+      case '5': await runAli(); config.lastActionMap[PROJECT_NAME] = '5'; saveConfig(config); break;
+      case '6': await listProjects(); config.lastActionMap[PROJECT_NAME] = '6'; saveConfig(config); break;
+      case 's': await basicSettings(); config.lastActionMap[PROJECT_NAME] = 's'; saveConfig(config); break;
       case '0':
         console.clear();
         console.log(boxen(chalk.cyan('再见!'), { padding: 1, borderStyle: 'double', borderColor: 'cyan' }));
