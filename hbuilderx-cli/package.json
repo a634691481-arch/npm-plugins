@@ -1,6 +1,6 @@
 {
   "name": "@a634691481/hb-cli",
-  "version": "1.0.45",
+  "version": "1.0.50",
   "description": "HBuilderX CLI 管理工具 - 全局命令行工具",
   "bin": {
     "hb": "index.js"
@@ -12,9 +12,10 @@
     "access": "public"
   },
   "dependencies": {
-    "chalk": "^4.1.2",
     "@inquirer/prompts": "^3.0.0",
     "boxen": "^5.1.2",
-    "ora": "^5.4.1"
+    "chalk": "^4.1.2",
+    "ora": "^5.4.1",
+    "strip-json-comments": "^3.1.1"
   }
 }

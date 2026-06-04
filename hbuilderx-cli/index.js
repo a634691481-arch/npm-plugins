@@ -6,7 +6,7 @@ const os = require('os');
 const chalk = require('chalk');
 const boxen = require('boxen');
 const ora = require('ora');
-const { select, input } = require('@inquirer/prompts');
+const { input } = require('@inquirer/prompts');
 
 // ============ Config ============
 const ROOT_DIR = process.cwd();
@@ -35,21 +35,27 @@ function findHBuilderX() {
   return '';
 }
 
+const stripJsonComments = require('strip-json-comments');
 let _manifestCache = null;
 function getManifest() {
   if (_manifestCache) return _manifestCache;
   try {
-    _manifestCache = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'manifest.json'), 'utf8'));
+    const raw = fs.readFileSync(path.join(ROOT_DIR, 'manifest.json'), 'utf8');
+    _manifestCache = JSON.parse(stripJsonComments(raw));
     return _manifestCache;
   } catch { return {}; }
 }
 
 function getManifestWxAppId() {
-  return getManifest()?.['mp-weixin']?.appid || '';
+  const m = getManifest();
+  const ap = m?.['app-plus'] || {};
+  return ap?.['mp-weixin']?.appid || m?.['mp-weixin']?.appid || '';
 }
 
 function getManifestAlipayAppId() {
-  return getManifest()?.['mp-alipay']?.appid || '';
+  const m = getManifest();
+  const ap = m?.['app-plus'] || {};
+  return ap?.['mp-alipay']?.appid || m?.['mp-alipay']?.appid || '';
 }
 
 function getManifestAppName() {
@@ -64,6 +70,28 @@ function getManifestAppId() {
   return getManifest()?.appid || '';
 }
 
+function getManifestVersionCode() {
+  return getManifest()?.versionCode || 0;
+}
+
+function nextVersionName(curName) {
+  const parts = curName.split('.');
+  if (parts.length === 3 && parts.every(p => /^\d+$/.test(p))) {
+    parts[2] = String(parseInt(parts[2], 10) + 1);
+    return parts.join('.');
+  }
+  return curName;
+}
+
+function updateManifestVersion(newName, newCode) {
+  const mp = path.join(ROOT_DIR, 'manifest.json');
+  let raw = fs.readFileSync(mp, 'utf8');
+  raw = raw.replace(/"versionName"\s*:\s*"[^"]*"/, () => `"versionName" : "${newName}"`);
+  raw = raw.replace(/"versionCode"\s*:\s*\d+/, () => `"versionCode" : ${newCode}`);
+  fs.writeFileSync(mp, raw, 'utf8');
+  _manifestCache = null;
+}
+
 function loadConfig() {
   const wxAppId = getManifestWxAppId();
   const aliAppId = getManifestAlipayAppId();
@@ -74,6 +102,12 @@ function loadConfig() {
     cfg = { hbxDir: '' };
   }
   cfg.lastActionMap = cfg.lastActionMap || {};
+  // 迁移旧版菜单编号（旧版 select 编号 → 新版 input 编号）
+  const LAST_ACTION_MIGRATION = { '1': '6', '3': '1', '4': '2', '5': '3', '6': '10', 's': '11' };
+  const oldKey = cfg.lastActionMap[PROJECT_NAME];
+  if (oldKey && LAST_ACTION_MIGRATION[oldKey]) {
+    cfg.lastActionMap[PROJECT_NAME] = LAST_ACTION_MIGRATION[oldKey];
+  }
   if (!cfg.hbxDir || !fs.existsSync(path.join(cfg.hbxDir, 'cli.exe'))) {
     const found = findHBuilderX();
     if (found) { cfg.hbxDir = found; saveConfig(cfg); }
@@ -105,7 +139,26 @@ function ts() {
   return chalk.dim(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`);
 }
 
-const ACTION_NAMES = { '1': '发布 H5', '3': '运行 Web', '4': '运行微信', '5': '运行支付宝', '6': '项目列表', 's': '基本设置' };
+const ACTION_NAMES = { '1': '运行 Web', '2': '运行微信小程序', '3': '运行支付宝小程序', '4': '运行 Android', '5': '运行 Android(自定义基座)', '6': '发布 H5', '7': '发布微信小程序', '8': '发布支付宝小程序', '9': 'Android/iOS云打包', '10': '项目列表', '11': '基本设置' };
+
+function printMenu() {
+  console.log(chalk.bold('\n  ' + chalk.underline.cyan('▶ 运行')));
+  console.log(`    ${chalk.cyan('1')}. 🌐 运行 Web`);
+  console.log(`    ${chalk.cyan('2')}. 💬 运行微信小程序`);
+  console.log(`    ${chalk.cyan('3')}. 📎 运行支付宝小程序`);
+  console.log(`    ${chalk.cyan('4')}. 📱 运行 Android`);
+  console.log(`    ${chalk.cyan('5')}. 📱 运行 Android(自定义基座)`);
+  console.log(chalk.bold('\n  ' + chalk.underline.yellow('▶ 发布')));
+  console.log(`    ${chalk.cyan('6')}. 📦 发布 H5`);
+  console.log(`    ${chalk.cyan('7')}. 💬 发布微信小程序`);
+  console.log(`    ${chalk.cyan('8')}. 📎 发布支付宝小程序`);
+  console.log(`    ${chalk.cyan('9')}. 📱 Android/iOS云打包`);
+  console.log(chalk.bold('\n  ' + chalk.underline.magenta('▶ 配置')));
+  console.log(`    ${chalk.cyan('10')}. 📋 项目列表`);
+  console.log(`    ${chalk.cyan('11')}. ⚙  基本设置`);
+  console.log(`    ${chalk.cyan('0')}. ✕  退出`);
+  console.log();
+}
 
 function header() {
   console.clear();
@@ -208,19 +261,199 @@ async function runWeb() {
 async function runWx() {
   await openHbx();
   await importProject();
-  await exec('运行微信', cliCmd(`launch mp-weixin --project ${PROJECT_NAME}`));
+  await exec('运行微信小程序', cliCmd(`launch mp-weixin --project ${PROJECT_NAME}`));
 }
 
 async function runAli() {
   await openHbx();
   await importProject();
-  await exec('运行支付宝', cliCmd(`launch mp-alipay --project ${PROJECT_NAME}`));
+  await exec('运行支付宝小程序', cliCmd(`launch mp-alipay --project ${PROJECT_NAME}`));
+}
+
+async function runAppAndroid() {
+  await openHbx();
+  await importProject();
+  await exec('运行 Android', cliCmd(`launch app-android --project ${PROJECT_NAME} --ui true`));
+}
+
+async function runAppAndroidCustom() {
+  await openHbx();
+  await importProject();
+  await exec('运行 Android(自定义基座)', cliCmd(`launch app-android --project ${PROJECT_NAME} --playground custom`));
 }
 
 async function listProjects() {
   await openHbx();
   await importProject();
   await exec('项目列表', cliCmd('project list'));
+}
+
+async function pubWx() {
+  await openHbx();
+  await importProject();
+  await exec('发布微信小程序', cliCmd(`publish mp-weixin --project ${PROJECT_NAME}`));
+}
+
+async function pubAli() {
+  await openHbx();
+  await importProject();
+  await exec('发布支付宝小程序', cliCmd(`publish mp-alipay --project ${PROJECT_NAME}`));
+}
+
+const PACK_CONFIG_FILE = path.join(ROOT_DIR, 'pack.config.json');
+function getDefaultPackConfig() {
+  return `{
+
+    //项目名字或项目绝对路径
+
+    "project": "${PROJECT_NAME}",
+
+    //打包平台 默认值android  值有"android","ios" 如果要打多个逗号隔开打包平台
+
+    "platform": "ios,android",
+
+    //是否使用自定义基座 默认值false  true自定义基座 false自定义证书
+
+    "iscustom": false,
+
+    //打包方式是否为安心打包默认值false,true安心打包,false传统打包
+
+    "safemode": false,
+
+    //android打包参数
+
+    "android": {
+
+        //安卓包名
+
+        "packagename": "com.test.android",
+
+        //安卓打包类型 默认值0 0 使用自有证书 1 使用公共证书 2 使用老版证书 3 使用云端证书
+
+        "androidpacktype": "1",
+
+        //安卓使用自有证书自有打包证书参数
+
+        //安卓打包证书别名,自有证书打包填写的参数
+
+        "certalias": "",
+
+        //安卓打包证书文件路径,自有证书打包填写的参数
+
+        "certfile": "",
+
+        //安卓打包证书密码,自有证书打包填写的参数
+
+        "certpassword": "",
+
+        //安卓打包证书库密码（HBuilderx4.41支持）,自有证书打包填写的参数
+
+        "storePassword": "",
+
+        //安卓平台要打的渠道包 取值有"google","yyb","360","huawei","xiaomi","oppo","vivo"，如果要打多个逗号隔开
+
+        "channels": ""
+
+    },
+
+    //ios打包参数
+
+    "ios": {
+
+        //ios appid
+
+        "bundle": "com.test.ios",
+
+        //ios打包支持的设备类型 默认值iPhone 值有"iPhone","iPad" 如果要打多个逗号隔开打包平台
+
+        "supporteddevice": "iPhone,iPad",
+
+        //iOS使用自定义证书打包的profile文件路径
+
+        "profile": "",
+
+        //iOS使用自定义证书打包的p12文件路径
+
+        "certfile": "",
+
+        //iOS使用自定义证书打包的证书密码
+
+        "certpassword": "123"
+
+    },
+
+    //是否混淆 true混淆 false关闭
+
+    "isconfusion": false,
+
+    //开屏广告 true打开 false关闭
+
+    "splashads": false,
+
+    //悬浮红包广告true打开 false关闭
+
+    "rpads": false,
+
+    //push广告 true打开 false关闭
+
+    "pushads": false,
+
+    //加入换量联盟 true加入 false不加入
+
+    "exchange": false
+
+}`;
+}
+
+async function packAndroid() {
+  const exists = fs.existsSync(PACK_CONFIG_FILE);
+  if (!exists) {
+    header();
+    console.log(`  ${chalk.bold.cyan('▶')} 创建打包配置\n`);
+    console.log(`  ${chalk.yellow('⚠')} ${chalk.dim('pack.config.json 不存在，正在创建默认配置...')}`);
+    fs.writeFileSync(PACK_CONFIG_FILE, getDefaultPackConfig(), 'utf8');
+    console.log(`  ${chalk.green('✔')} 已创建 ${chalk.cyan('pack.config.json')}\n`);
+    console.log(`  ${chalk.yellow('⚠')} 请编辑 pack.config.json 中的证书、包名等信息后再打包\n`);
+    const edit = await input({ message: '按 Enter 开始打包，或输入 q 返回菜单:', default: '' });
+    if (edit.trim().toLowerCase() === 'q') return;
+  }
+
+  // 版本确认
+  header();
+  console.log(`  ${chalk.bold.cyan('▶')} Android/iOS云打包\n`);
+  _manifestCache = null;
+  const curName = getManifestVersion();
+  const curCode = getManifestVersionCode();
+  console.log(`  ${chalk.dim('当前版本')}   ${chalk.bold(curName)}  ${chalk.dim('(versionCode: ' + curCode + ')')}`);
+  console.log(`  ${chalk.dim('─'.repeat(30))}\n`);
+
+  const autoUp = await input({ message: '是否自动升级版本号? (Y 升级 / n 不升级)', default: 'Y' });
+  const isAuto = autoUp.trim().toLowerCase() !== 'n' && autoUp.trim().toLowerCase() !== 'no';
+
+  const defaultName = isAuto ? nextVersionName(curName) : curName;
+  const defaultCode = isAuto ? String(curCode + 1) : String(curCode);
+
+  const newName = await input({ message: 'versionName:', default: defaultName });
+  const newCodeStr = await input({ message: 'versionCode:', default: defaultCode });
+  const newCode = parseInt(newCodeStr, 10);
+
+  if (!newName || isNaN(newCode)) {
+    console.log(`  ${chalk.red('✖ 输入无效')}`);
+    await new Promise(r => setTimeout(r, 800));
+    return;
+  }
+
+  console.log(`\n  ${chalk.dim('打包版本')}   ${chalk.bold(newName)}  ${chalk.cyan.bold('(versionCode: ' + newCode + ')')}\n`);
+
+  const confirm = await input({ message: '按 Enter 确认打包，输入 q 返回:', default: '' });
+  if (confirm.trim().toLowerCase() === 'q') return;
+
+  updateManifestVersion(newName, newCode);
+  console.log(`  ${chalk.green('✔')} manifest.json 已更新\n`);
+
+  await openHbx();
+  await importProject();
+  await exec('Android/iOS云打包', cliCmd(`pack --config ${PACK_CONFIG_FILE} --platform android`));
 }
 
 async function basicSettings() {
@@ -245,35 +478,35 @@ async function basicSettings() {
 async function main() {
   while (true) {
     header();
+    printMenu();
 
-    const defaultAction = config.lastActionMap[PROJECT_NAME] || undefined;
-    const action = await select({
-      message: chalk.bold('选择操作:'),
-      choices: [
-        { name: '(1) 🌐 运行 Web', value: '3' },
-        { name: '(2) 💬 运行微信', value: '4' },
-        { name: '(3) 📎 运行支付宝', value: '5' },
-        { name: '(4) 📦 发布 H5', value: '1' },
-        { name: '(5) 📋 项目列表', value: '6' },
-        { name: '(6) ⚙  基本设置', value: 's' },
-        { name: '(0) ✕  退出', value: '0' },
-      ],
-      default: defaultAction,
-      loop: false,
-      pageSize: 10,
+    const lastAction = config.lastActionMap[PROJECT_NAME];
+    const lastHint = lastAction
+      ? chalk.dim(` (上次: ${ACTION_NAMES[lastAction] || lastAction})`)
+      : '';
+
+    const raw = await input({
+      message: chalk.bold('请输入操作编号:') + lastHint,
+      default: lastAction || '',
     });
 
-    switch (action) {
-      case '1': await pubWeb(); config.lastActionMap[PROJECT_NAME] = '1'; saveConfig(config); break;
-      case '3': await runWeb(); config.lastActionMap[PROJECT_NAME] = '3'; saveConfig(config); break;
-      case '4': await runWx(); config.lastActionMap[PROJECT_NAME] = '4'; saveConfig(config); break;
-      case '5': await runAli(); config.lastActionMap[PROJECT_NAME] = '5'; saveConfig(config); break;
-      case '6': await listProjects(); config.lastActionMap[PROJECT_NAME] = '6'; saveConfig(config); break;
-      case 's': await basicSettings(); config.lastActionMap[PROJECT_NAME] = 's'; saveConfig(config); break;
-      case '0':
-        console.clear();
-        console.log(boxen(chalk.cyan('再见!'), { padding: 1, borderStyle: 'double', borderColor: 'cyan' }));
-        process.exit(0);
+    const action = raw.trim();
+
+    if (action === '0') {
+      console.clear();
+      console.log(boxen(chalk.cyan('再见!'), { padding: 1, borderStyle: 'double', borderColor: 'cyan' }));
+      process.exit(0);
+    }
+
+    const fnMap = { '1': runWeb, '2': runWx, '3': runAli, '4': runAppAndroid, '5': runAppAndroidCustom, '6': pubWeb, '7': pubWx, '8': pubAli, '9': packAndroid, '10': listProjects, '11': basicSettings };
+    const fn = fnMap[action];
+    if (fn) {
+      await fn();
+      config.lastActionMap[PROJECT_NAME] = action;
+      saveConfig(config);
+    } else {
+      console.log(`  ${chalk.red('✖ 无效编号，请输入 0-11')}`);
+      await new Promise(r => setTimeout(r, 800));
     }
   }
 }
