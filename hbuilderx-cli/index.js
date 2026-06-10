@@ -92,6 +92,23 @@ function updateManifestVersion(newName, newCode) {
   _manifestCache = null;
 }
 
+function saveLastAction(action) {
+  const mp = path.join(ROOT_DIR, 'manifest.json');
+  try {
+    let raw = fs.readFileSync(mp, 'utf8');
+    if (raw.includes('"_lastAction"')) {
+      raw = raw.replace(/"\_lastAction"\s*:\s*"[^"]*"/, `"_lastAction": "${action}"`);
+    } else {
+      const firstBrace = raw.indexOf('{');
+      raw = raw.slice(0, firstBrace + 1) + `\n\t"_lastAction": "${action}",` + raw.slice(firstBrace + 1);
+    }
+    fs.writeFileSync(mp, raw, 'utf8');
+    _manifestCache = null;
+  } catch (e) {
+    console.error(chalk.red('✖ 写入 _lastAction 失败:'), e.message);
+  }
+}
+
 function loadConfig() {
   const wxAppId = getManifestWxAppId();
   const aliAppId = getManifestAlipayAppId();
@@ -100,13 +117,6 @@ function loadConfig() {
     cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
   } catch {
     cfg = { hbxDir: '' };
-  }
-  cfg.lastActionMap = cfg.lastActionMap || {};
-  // 迁移旧版菜单编号（旧版 select 编号 → 新版 input 编号）
-  const LAST_ACTION_MIGRATION = { '1': '6', '3': '1', '4': '2', '5': '3', '6': '10', 's': '11' };
-  const oldKey = cfg.lastActionMap[PROJECT_NAME];
-  if (oldKey && LAST_ACTION_MIGRATION[oldKey]) {
-    cfg.lastActionMap[PROJECT_NAME] = LAST_ACTION_MIGRATION[oldKey];
   }
   if (!cfg.hbxDir || !fs.existsSync(path.join(cfg.hbxDir, 'cli.exe'))) {
     const found = findHBuilderX();
@@ -117,11 +127,12 @@ function loadConfig() {
   cfg.manifestName = getManifestAppName() || '';
   cfg.manifestVersion = getManifestVersion() || '';
   cfg.manifestAppId = getManifestAppId() || '';
+  cfg.lastAction = getManifest()._lastAction || '';
   return cfg;
 }
 
 function saveConfig(cfg) {
-  const clean = { hbxDir: cfg.hbxDir, lastActionMap: cfg.lastActionMap };
+  const clean = { hbxDir: cfg.hbxDir };
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(clean, null, 2));
 }
 
@@ -162,7 +173,7 @@ function printMenu() {
 
 function header() {
   console.clear();
-  const curAction = config.lastActionMap[PROJECT_NAME] || '';
+  const curAction = config.lastAction || '';
   const lastLabel = curAction ? chalk.dim('上次: ') + (ACTION_NAMES[curAction] || curAction) : '';
   const info =
     chalk.dim('名称') + '   ' + chalk.bold(config.manifestName || PROJECT_NAME) + '\n' +
@@ -172,7 +183,7 @@ function header() {
     chalk.dim('支付宝') + ' ' + (config.alipayAppid || chalk.dim('未设置')) + '\n' +
     chalk.dim('工具') + '   ' + (config.hbxDir ? chalk.cyan(path.basename(config.hbxDir)) : chalk.red('未找到')) +
     (lastLabel ? '\n' + chalk.dim('─'.repeat(30)) + '\n' + lastLabel : '');
-  console.log(boxen(chalk.bold.yellow(' HBuilderX CLI 管理工具 ') + '\n\n' + info,
+  console.log(boxen(chalk.bold.yellow(' HBuilderX CLI 管理工具 ') + chalk.dim(' (开发版)') + '\n\n' + info,
     { padding: 1, borderStyle: 'round', borderColor: 'cyan' }
   ));
 }
@@ -480,7 +491,7 @@ async function main() {
     header();
     printMenu();
 
-    const lastAction = config.lastActionMap[PROJECT_NAME];
+    const lastAction = config.lastAction;
     const lastHint = lastAction
       ? chalk.dim(` (上次: ${ACTION_NAMES[lastAction] || lastAction})`)
       : '';
@@ -501,9 +512,9 @@ async function main() {
     const fnMap = { '1': runWeb, '2': runWx, '3': runAli, '4': runAppAndroid, '5': runAppAndroidCustom, '6': pubWeb, '7': pubWx, '8': pubAli, '9': packAndroid, '10': listProjects, '11': basicSettings };
     const fn = fnMap[action];
     if (fn) {
+      saveLastAction(action);
+      config.lastAction = action;
       await fn();
-      config.lastActionMap[PROJECT_NAME] = action;
-      saveConfig(config);
     } else {
       console.log(`  ${chalk.red('✖ 无效编号，请输入 0-11')}`);
       await new Promise(r => setTimeout(r, 800));
