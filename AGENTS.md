@@ -8,8 +8,9 @@ Repo: `npm-plugins` — currently a single package under `hbuilderx-cli/`.
 
 | Where | Command | What |
 |-------|---------|------|
-| `hbuilderx-cli/` | `npm run release` | bump patch + `npm publish --access public` |
 | any HBuilderX project dir | `hb` or `node <repo>/hbuilderx-cli/index.js` | run the tool |
+
+> Publishing is handled automatically by CI (push to `main` → auto bump patch → `npm publish`).
 
 ## Hard constraints
 

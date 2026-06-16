@@ -1,0 +1,55 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 防止并发 push 导致版本冲突
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write # npm provenance 签名
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Bump version, publish, then push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # bump patch 版本
+          npm version patch --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+
+          # 幂等检查：若该版本已在 npm registry 存在则跳过
+          if npm view "@a634691481/hb-cli@$VERSION" version 2>/dev/null; then
+            echo "Version $VERSION already published, skipping."
+            exit 0
+          fi
+
+          # 先发布到 npm（失败时 git 不受影响）
+          npm publish --provenance --access public
+
+          # 发布成功后再提交并推送
+          # 注: GITHUB_TOKEN push 不会触发新 workflow，无需担心无限循环
+          git add package.json package-lock.json
+          git commit -m "chore: release v${VERSION} [skip ci]"
+          git tag "v${VERSION}"
+          git push origin main --tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
