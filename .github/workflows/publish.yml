@@ -1,11 +1,8 @@
 name: Publish to npm
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+on: workflow_dispatch
 
-# 防止并发 push 导致版本冲突
+# 防止重复触发导致版本冲突
 concurrency:
   group: npm-publish
   cancel-in-progress: false
