@@ -188,25 +188,28 @@ function header() {
   ));
 }
 
-function runCmd(cmd) {
+function spawnCli(cmd, { timeout = 0, inherit = false } = {}) {
   return new Promise(resolve => {
-    const sp = ora({ text: '正在执行...', color: 'cyan' }).start();
     const isWin = process.platform === 'win32';
     const proc = spawn(isWin ? 'cmd.exe' : 'sh',
       isWin ? ['/c', cmd] : ['-c', cmd],
-      { stdio: 'inherit', windowsHide: true, cwd: ROOT_DIR });
-    proc.on('close', code => {
-      sp.stop();
-      console.log(`  ${ts()} ${chalk.cyan('$')} ${chalk.dim(cmd)}\n`);
-      const msg = code === 0 ? chalk.green('✔ 完成') : chalk.red('✖ 失败 (exit: ' + code + ')');
-      console.log(`\n${boxen(` ${ts()} ${msg}`, { padding: { left: 1, right: 1 }, borderStyle: 'single', borderColor: code === 0 ? 'green' : 'red' })}`);
-      resolve(code);
-    });
-    proc.on('error', err => {
-      sp.stop();
-      console.log(`  ${ts()} ${chalk.red('✖ ' + err.message)}`);
-      resolve(-1);
-    });
+      { stdio: inherit ? 'inherit' : 'pipe', windowsHide: true, cwd: ROOT_DIR });
+    let done = false;
+    const finish = (code = 0) => { if (!done) { done = true; resolve(code); } };
+    if (timeout > 0) setTimeout(finish, timeout);
+    proc.on('close', finish);
+    proc.on('error', () => finish(-1));
+  });
+}
+
+function runCmd(cmd) {
+  const sp = ora({ text: '正在执行...', color: 'cyan' }).start();
+  return spawnCli(cmd, { inherit: true }).then(code => {
+    sp.stop();
+    console.log(`  ${ts()} ${chalk.cyan('$')} ${chalk.dim(cmd)}\n`);
+    const msg = code === 0 ? chalk.green('✔ 完成') : chalk.red('✖ 失败 (exit: ' + code + ')');
+    console.log(`\n${boxen(` ${ts()} ${msg}`, { padding: { left: 1, right: 1 }, borderStyle: 'single', borderColor: code === 0 ? 'green' : 'red' })}`);
+    return code;
   });
 }
 
@@ -218,18 +221,9 @@ async function openHbx() {
     return;
   }
   _hbxOpened = true;
-  const cmd = cliCmd('open');
-  return new Promise(resolve => {
-    const sp = ora({ text: '启动 HBuilderX...', color: 'cyan' }).start();
-    const isWin = process.platform === 'win32';
-    const proc = spawn(isWin ? 'cmd.exe' : 'sh',
-      isWin ? ['/c', cmd] : ['-c', cmd],
-      { windowsHide: true, cwd: ROOT_DIR });
-    let done = false;
-    const t = setTimeout(() => { if (!done) { sp.stop(); done = true; resolve(); } }, 3000);
-    proc.on('close', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
-    proc.on('error', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
-  });
+  const sp = ora({ text: '启动 HBuilderX...', color: 'cyan' }).start();
+  await spawnCli(cliCmd('open'), { timeout: 3000 });
+  sp.stop();
 }
 
 async function exec(label, cmd) {
@@ -242,73 +236,29 @@ async function exec(label, cmd) {
 
 async function importProject() {
   if (!config.hbxDir || !fs.existsSync(path.join(config.hbxDir, 'cli.exe'))) return;
-  return new Promise(resolve => {
-    const sp = ora({ text: '导入项目...', color: 'cyan' }).start();
-    const isWin = process.platform === 'win32';
-    const cmd = cliCmd(`project open --path "${ROOT_DIR}"`);
-    const proc = spawn(isWin ? 'cmd.exe' : 'sh',
-      isWin ? ['/c', cmd] : ['-c', cmd],
-      { windowsHide: true, cwd: ROOT_DIR });
-    let done = false;
-    const t = setTimeout(() => { if (!done) { sp.stop(); done = true; resolve(); } }, 2000);
-    proc.on('close', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
-    proc.on('error', () => { if (!done) { sp.stop(); done = true; clearTimeout(t); resolve(); } });
-  });
+  const sp = ora({ text: '导入项目...', color: 'cyan' }).start();
+  await spawnCli(cliCmd(`project open --path "${ROOT_DIR}"`), { timeout: 2000 });
+  sp.stop();
 }
 
 // ============ Commands ============
-async function pubWeb() {
-  await openHbx();
-  await importProject();
-  await exec('发布 H5', cliCmd(`publish web --project ${PROJECT_NAME}`));
-}
+const SIMPLE_COMMANDS = {
+  '1':  { label: '运行 Web',              args: `launch web --project ${PROJECT_NAME} --browser Chrome` },
+  '2':  { label: '运行微信小程序',         args: `launch mp-weixin --project ${PROJECT_NAME}` },
+  '3':  { label: '运行支付宝小程序',       args: `launch mp-alipay --project ${PROJECT_NAME}` },
+  '4':  { label: '运行 Android',          args: `launch app-android --project ${PROJECT_NAME} --ui true` },
+  '5':  { label: '运行 Android(自定义基座)', args: `launch app-android --project ${PROJECT_NAME} --playground custom` },
+  '6':  { label: '发布 H5',               args: `publish web --project ${PROJECT_NAME}` },
+  '7':  { label: '发布微信小程序',         args: `publish mp-weixin --project ${PROJECT_NAME}` },
+  '8':  { label: '发布支付宝小程序',       args: `publish mp-alipay --project ${PROJECT_NAME}` },
+  '10': { label: '项目列表',              args: 'project list' },
+};
 
-async function runWeb() {
+async function runSimpleCommand(id) {
+  const cmd = SIMPLE_COMMANDS[id];
   await openHbx();
   await importProject();
-  await exec('运行 Web', cliCmd(`launch web --project ${PROJECT_NAME} --browser Chrome`));
-}
-
-async function runWx() {
-  await openHbx();
-  await importProject();
-  await exec('运行微信小程序', cliCmd(`launch mp-weixin --project ${PROJECT_NAME}`));
-}
-
-async function runAli() {
-  await openHbx();
-  await importProject();
-  await exec('运行支付宝小程序', cliCmd(`launch mp-alipay --project ${PROJECT_NAME}`));
-}
-
-async function runAppAndroid() {
-  await openHbx();
-  await importProject();
-  await exec('运行 Android', cliCmd(`launch app-android --project ${PROJECT_NAME} --ui true`));
-}
-
-async function runAppAndroidCustom() {
-  await openHbx();
-  await importProject();
-  await exec('运行 Android(自定义基座)', cliCmd(`launch app-android --project ${PROJECT_NAME} --playground custom`));
-}
-
-async function listProjects() {
-  await openHbx();
-  await importProject();
-  await exec('项目列表', cliCmd('project list'));
-}
-
-async function pubWx() {
-  await openHbx();
-  await importProject();
-  await exec('发布微信小程序', cliCmd(`publish mp-weixin --project ${PROJECT_NAME}`));
-}
-
-async function pubAli() {
-  await openHbx();
-  await importProject();
-  await exec('发布支付宝小程序', cliCmd(`publish mp-alipay --project ${PROJECT_NAME}`));
+  await exec(cmd.label, cliCmd(cmd.args));
 }
 
 const PACK_CONFIG_FILE = path.join(ROOT_DIR, 'pack.config.json');
@@ -509,7 +459,7 @@ async function main() {
       process.exit(0);
     }
 
-    const fnMap = { '1': runWeb, '2': runWx, '3': runAli, '4': runAppAndroid, '5': runAppAndroidCustom, '6': pubWeb, '7': pubWx, '8': pubAli, '9': packAndroid, '10': listProjects, '11': basicSettings };
+    const fnMap = { '1': () => runSimpleCommand('1'), '2': () => runSimpleCommand('2'), '3': () => runSimpleCommand('3'), '4': () => runSimpleCommand('4'), '5': () => runSimpleCommand('5'), '6': () => runSimpleCommand('6'), '7': () => runSimpleCommand('7'), '8': () => runSimpleCommand('8'), '9': packAndroid, '10': () => runSimpleCommand('10'), '11': basicSettings };
     const fn = fnMap[action];
     if (fn) {
       saveLastAction(action);
